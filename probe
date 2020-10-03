@@ -1,3 +1,5 @@
+# Задача: разработать алгоритм или прототип, позволяющий определять точки наиболее целесообразного расположения банктоматов Газпромбанка
+
 # импорт библиотек
 import pandas as pd, numpy as np
 import json
@@ -11,3 +13,73 @@ from sklearn.cluster import KMeans
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 from scipy.spatial import distance
+
+# загрузка предобработанных данных
+# на первоначальном этапе из представленных кейсодержателем данных получена информация о расположении банкоматов
+# также из открытых источников получена информация о транзакциях при оплате в терминалах владельцами карт банка в
+# торговых точках Ломоносовского района Юго-Западного административного округа Москвы; к этому была добавлена 
+# синтетическая информация о картодержателях и таблицы были сохранены в файлы.
+# проведенная предобработка здесь не представлена исходя из необходимости показать работающий прототип,
+# который после подачи на него необходимых данных самостоятельно выдаст решение задачи в виде необходимых координат 
+atm_moscow = pd.read_csv('/datasets/new_files/atm_moscow1.scv')
+terminal_operations = pd.read_csv('/datasets/new_files/terminal_operations_final.scv')
+clustering = terminal_operations[['longitude', 'latitude']]
+
+# Обучение модели методом K-средних для определения кластеров использования клиентами банка карт для оплаты в терминалах
+model = KMeans(n_clusters=15, random_state=12345).fit(clustering)
+centroides = model.cluster_centers_
+
+# создание таблицы координат центроидов
+df_centroides = pd.DataFrame(centroides)
+df_centroides.columns = [['longitude', 'latitude']]
+
+# присоединение к таблице с координатами транзакций в терминалах столбца с номером кластера
+clustering['cluster'] = model.labels_
+
+# определение средних радиусов для каждого кластера
+dist = []
+mean = []
+for claster in range(len(centroides)):
+    q = 'cluster == '+str(claster)
+    for i in range(len(clustering.query(q))-1):
+        point = [clustering.query(q).reset_index()['longitude'][i], clustering.query(q).reset_index()['latitude'][i]]
+        point = np.array(point)
+        d = distance.euclidean(centroides[claster], point)
+        dist.append(d)
+    mean.append(pd.Series(dist).mean()*111000)
+    
+# добавление номера кластера к среднему радиусу
+mean = pd.DataFrame(mean)
+mean.columns = ['средний радиус']
+mean['кластер'] = mean['средний радиус']
+for i in range (len(centroides)):
+    mean['кластер'][i] = i
+    
+# создание финальной таблицы, содержащей для каждого кластера информацию о координатах его центроида и среднем радиусе
+df_final = mean
+df_final['coordinates'] = 0
+for i in range(len(centroides)):
+    df_final['coordinates'][i] = str(centroides[i])
+print('Средние радиусы (в метрах) для каждого кластера и координаты его центроида')
+df_final
+
+# визуализация кластеров пользования терминалами клиентами банка в сочетании с расположением существующих банкоматов
+# на примере одного кластера концентрации транзакций через терминалы отлаты держателеями карт
+# Ломоносовского района Юго-Западного административного округа Москвы
+# в центре кластера указан его центроид, в котором наиболее целесообразно установить банкомат
+# точки за пределами кластера - существующие в настоящее время банкоматы Газпромбанка
+# при достаточном увеличении видно, что существующие банкоматы находятся вне зоны оптимального расположения
+# визуализация на карте выполнена с использованием бесплатной версии ArcGIS API
+gis = GIS()
+cluster_0 = gis.content.import_data(clustering.query('cluster == 0').sample(1000))
+cluster_map = gis.map('Москва', zoomlevel=12)
+cluster_map.basemap = 'osm'
+cluster_map.add_layer(cluster_0, {"renderer":"HeatmapRenderer"})
+cluster_map.height = '900px'
+atm = gis.content.import_data(atm_moscow)
+cluster_map.add_layer(atm)
+centroides = gis.content.import_data(df_centroides.head(1))
+cluster_map.add_layer(centroides)
+cluster_map
+
+# Конец. Да, знаем, что код получился очень маленьким (всего 52 исполняемых строчки), но он работает и решает поставленную задачу)
