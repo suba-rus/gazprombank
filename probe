@@ -1,0 +1,13 @@
+# импорт библиотек
+import pandas as pd, numpy as np
+import json
+from pandas.io.json import json_normalize
+import requests as r
+import random
+state = np.random.RandomState(12345)
+import arcgis
+from arcgis.gis import GIS
+from sklearn.cluster import KMeans
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+from scipy.spatial import distance
